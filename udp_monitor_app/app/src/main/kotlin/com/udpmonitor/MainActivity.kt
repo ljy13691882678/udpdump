@@ -212,8 +212,9 @@ class MainActivity : Activity() {
                     curSport = m.group(2).toInt()
                     curDst = m.group(3)
                     curDport = m.group(4).toInt()
-                    val lm = lenRe.find(m.group(5) ?: "")
-                    curLen = if (lm != null) lm.group(1).toIntOrNull() ?: 0 else 0
+                    val detail = m.group(5) ?: ""
+                    val lm = lenRe.matcher(detail)
+                    curLen = if (lm.find()) lm.group(1).toIntOrNull() ?: 0 else 0
                     continue
                 }
                 val hm = hexlineRe.matcher(text)
