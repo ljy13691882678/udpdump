@@ -44,21 +44,17 @@ echo "== 编译 tcpdump =="
 rm -rf "tcpdump-$TCPDUMP_VERSION"
 tar xzf tcpdump.tar.gz
 cd "tcpdump-$TCPDUMP_VERSION"
+# 源码级修复(不依赖 config.h，避免 make 重新生成覆盖)：
+# 1) bionic 的 netdb.h 已声明 getservent，删除本地 getservent.h 里的冲突 #error 块
+sed -i '/^#ifdef _NETDB_H_$/,/^#endif$/d' getservent.h
+# 2) 强制包含 <fcntl.h>，让 open() 有声明(由下面 CFLAGS 的 -include 完成)
 CC="$CC" \
   CPPFLAGS="-I$WORK/libpcap-$LIBPCAP_VERSION" \
   LDFLAGS="-L$WORK/libpcap-$LIBPCAP_VERSION" \
   LIBS="-lpcap" \
-  CFLAGS="-Os -fPIE -D_GNU_SOURCE" \
+  CFLAGS="-Os -fPIE -D_GNU_SOURCE -include fcntl.h" \
   ./configure --host="$PREFIX" --without-crypto \
     ac_cv_func_getservent=yes >/dev/null
-# Android(bionic) 交叉编译时 configure 检测不到这些，需补上：
-#  - HAVE_GETSERVENT：否则会 include 本地 getservent.h 与 bionic 的 netdb.h 冲突
-#  - HAVE_FCNTL_H   ：否则不会 #include <fcntl.h>，导致 open() 未声明
-# 先删旧行再在末尾追加，确保最终生效（config.h 里可能是注释或裸 #undef 两种格式）
-sed -i '/^.*HAVE_GETSERVENT/d' config.h
-sed -i '/^.*HAVE_FCNTL_H/d' config.h
-echo '#define HAVE_GETSERVENT 1' >> config.h
-echo '#define HAVE_FCNTL_H 1' >> config.h
 make -j"$(nproc)" tcpdump
 cd "$WORK"
 
