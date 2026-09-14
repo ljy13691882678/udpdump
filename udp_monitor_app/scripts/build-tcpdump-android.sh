@@ -54,8 +54,11 @@ CC="$CC" \
 # Android(bionic) 交叉编译时 configure 检测不到这些，需补上：
 #  - HAVE_GETSERVENT：否则会 include 本地 getservent.h 与 bionic 的 netdb.h 冲突
 #  - HAVE_FCNTL_H   ：否则不会 #include <fcntl.h>，导致 open() 未声明
-sed -i 's/^\/\* #undef HAVE_GETSERVENT \*\//#define HAVE_GETSERVENT 1/' config.h
-sed -i 's/^\/\* #undef HAVE_FCNTL_H \*\//#define HAVE_FCNTL_H 1/' config.h
+# 先删旧行再在末尾追加，确保最终生效（config.h 里可能是注释或裸 #undef 两种格式）
+sed -i '/^.*HAVE_GETSERVENT/d' config.h
+sed -i '/^.*HAVE_FCNTL_H/d' config.h
+echo '#define HAVE_GETSERVENT 1' >> config.h
+echo '#define HAVE_FCNTL_H 1' >> config.h
 make -j"$(nproc)" tcpdump
 cd "$WORK"
 
