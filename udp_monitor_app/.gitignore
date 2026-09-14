@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 本地覆盖
+local.properties
+
+# 系统
+.DS_Store
+*.keystore

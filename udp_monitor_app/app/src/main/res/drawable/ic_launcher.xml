@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- 背景圆 -->
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M24,24m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0" />
+    <!-- 数据包方块 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,30 L24,19 L34,30 Z" />
+    <!-- 信号弧线示意 -->
+    <path
+        android:strokeColor="#E3F2FD"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:pathData="M14,36 Q24,41 34,36" />
+</vector>
