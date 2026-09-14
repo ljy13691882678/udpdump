@@ -1,12 +1,16 @@
 name: Build APK
 
-# 云端 CI：推到 GitHub 后自动编译出 APK，产物可在 Actions 页面下载
-# 也可以手动触发：右侧 Actions -> Build APK -> Run workflow
+# 云端 CI：推到 main 后自动编译出 APK，产物在 Actions 页面 Artifacts 下载
+# 也可手动触发：Actions -> Build APK -> Run workflow
 
 on:
   push:
   pull_request:
   workflow_dispatch:   # 允许手动触发
+
+defaults:
+  run:
+    working-directory: udp_monitor_app   # Android 工程在该子目录下
 
 jobs:
   build:
@@ -37,10 +41,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: udp-monitor-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: udp_monitor_app/app/build/outputs/apk/debug/*.apk
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: udp-monitor-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: udp_monitor_app/app/build/outputs/apk/release/*.apk
