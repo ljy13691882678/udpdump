@@ -202,9 +202,8 @@ class MainActivity : Activity() {
                 curHex = StringBuilder()
             }
 
-            var line: String?
-            while (running && (reader.readLine().also { line = it }) != null) {
-                val text = line!!
+            while (running) {
+                val text = reader.readLine() ?: break
                 val m = pktRe.matcher(text)
                 if (m.matches()) {
                     commit()
@@ -219,7 +218,7 @@ class MainActivity : Activity() {
                 }
                 val hm = hexlineRe.matcher(text)
                 if (hm.matches()) {
-                    val tokens = hm.group(1).split(" ").filter { hexTokenRe.matches(it) }
+                    val tokens = hm.group(1).split(" ").filter { hexTokenRe.matcher(it).matches() }
                     if (tokens.isNotEmpty()) curHex.append(tokens.joinToString(" ")).append(' ')
                 }
             }
