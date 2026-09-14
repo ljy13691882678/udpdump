@@ -48,9 +48,10 @@ CC="$CC" \
   CPPFLAGS="-I$WORK/libpcap-$LIBPCAP_VERSION" \
   LDFLAGS="-L$WORK/libpcap-$LIBPCAP_VERSION" \
   LIBS="-lpcap" \
-  CFLAGS="-Os -fPIE" \
-  ./configure --host="$PREFIX" --without-crypto >/dev/null
-make -j"$(nproc)" tcpdump >/dev/null
+  CFLAGS="-Os -fPIE -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L" \
+  ./configure --host="$PREFIX" --without-crypto \
+    ac_cv_func_getservent=yes
+make -j"$(nproc)" tcpdump
 cd "$WORK"
 
 cp "tcpdump-$TCPDUMP_VERSION/tcpdump" "$WORK/tcpdump"
