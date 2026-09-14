@@ -48,9 +48,14 @@ CC="$CC" \
   CPPFLAGS="-I$WORK/libpcap-$LIBPCAP_VERSION" \
   LDFLAGS="-L$WORK/libpcap-$LIBPCAP_VERSION" \
   LIBS="-lpcap" \
-  CFLAGS="-Os -fPIE -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L" \
+  CFLAGS="-Os -fPIE -D_GNU_SOURCE" \
   ./configure --host="$PREFIX" --without-crypto \
-    ac_cv_func_getservent=yes
+    ac_cv_func_getservent=yes >/dev/null
+# Android(bionic) 交叉编译时 configure 检测不到这些，需补上：
+#  - HAVE_GETSERVENT：否则会 include 本地 getservent.h 与 bionic 的 netdb.h 冲突
+#  - HAVE_FCNTL_H   ：否则不会 #include <fcntl.h>，导致 open() 未声明
+sed -i 's/^\/\* #undef HAVE_GETSERVENT \*\//#define HAVE_GETSERVENT 1/' config.h
+sed -i 's/^\/\* #undef HAVE_FCNTL_H \*\//#define HAVE_FCNTL_H 1/' config.h
 make -j"$(nproc)" tcpdump
 cd "$WORK"
 
