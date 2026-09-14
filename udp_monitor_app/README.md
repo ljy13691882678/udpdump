@@ -35,12 +35,8 @@
 > 手动重编：Actions 页左侧选中 “Build APK” → 右侧 “Run workflow” 下拉里选 main 分支 → Run。
 
 ## 部署需要 root 前置
-- 手机已 root（如 Magisk）
-- Termux 或系统 shell 里已安装 `tcpdump`
-  ```bash
-  pkg install tcpdump
-  ```
-  （或 root 设备上用 Magisk 模块自带 tcpdump）
+- 手机已 **root**（如 Magisk）——被动抓取热点上其它设备的下行 UDP，系统强制要求 root，无法免除
+- tcpdump 已内置在 APK 里：CI 会用 Android NDK 从源码交叉编译 arm64 静态 `tcpdump`，App 启动时自动解压到私有目录运行，**无需单独安装 tcpdump**
 
 ## 本地开发（可选）
 已安装 Android SDK 时可本地编译：

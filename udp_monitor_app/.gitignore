@@ -14,3 +14,7 @@ local.properties
 # 系统
 .DS_Store
 *.keystore
+
+# CI 生成的内置 tcpdump 与本地编译产物
+app/src/main/assets/tcpdump
+build_native/

@@ -1,16 +1,16 @@
 name: Build APK
 
-# 云端 CI：推到 main 后自动编译出 APK，产物在 Actions 页面 Artifacts 下载
-# 也可手动触发：Actions -> Build APK -> Run workflow
+# 云端 CI：推到 main 后自动编译出 APK（内含 NDK 交叉编译的 arm64 tcpdump）
+# 产物在 Actions 页面 Artifacts 下载。也可手动触发。
 
 on:
   push:
   pull_request:
-  workflow_dispatch:   # 允许手动触发
+  workflow_dispatch:
 
 defaults:
   run:
-    working-directory: udp_monitor_app   # Android 工程在该子目录下
+    working-directory: udp_monitor_app
 
 jobs:
   build:
@@ -24,6 +24,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK 26.1
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;26.1.10909125"
+
+      - name: Cross-compile tcpdump for arm64
+        run: |
+          chmod +x scripts/build-tcpdump-android.sh
+          ./scripts/build-tcpdump-android.sh
+
+      - name: Copy tcpdump into app assets
+        run: |
+          mkdir -p app/src/main/assets
+          cp build_native/tcpdump app/src/main/assets/tcpdump
+          ls -la app/src/main/assets/
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -48,3 +67,9 @@ jobs:
         with:
           name: udp-monitor-release-apk
           path: udp_monitor_app/app/build/outputs/apk/release/*.apk
+
+      - name: Upload tcpdump binary (for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcpdump-arm64
+          path: udp_monitor_app/build_native/tcpdump

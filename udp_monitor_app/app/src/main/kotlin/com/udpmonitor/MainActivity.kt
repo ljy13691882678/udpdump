@@ -99,6 +99,13 @@ class MainActivity : Activity() {
         val portFilter = etPort.text.toString().trim()
         val bpf = if (portFilter.isEmpty()) "udp" else "udp and port $portFilter"
 
+        // 解压内置的 arm64 tcpdump 到私有目录（如果还没有）
+        val tcpdumpPath = extractBundledTcpdump()
+        if (tcpdumpPath == null) {
+            toast("内置 tcpdump 解压失败")
+            return
+        }
+
         // 初始化日志文件
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val dir = getExternalFilesDir(null) ?: filesDir
@@ -110,7 +117,8 @@ class MainActivity : Activity() {
             return
         }
 
-        val cmd = "tcpdump -i any -l -n -X \"$bpf\""
+        // 用 root(su) 运行内置 tcpdump
+        val cmd = "\"$tcpdumpPath\" -i any -l -n -X \"$bpf\""
         try {
             process = ProcessBuilder("su", "-c", cmd).start()
         } catch (e: Exception) {
@@ -287,6 +295,24 @@ class MainActivity : Activity() {
     // -------------------------------------------------------------
     // 工具
     // -------------------------------------------------------------
+
+    /** 把内置在 assets 里的 arm64 tcpdump 解压到私有目录并加可执行权限，返回路径 */
+    private fun extractBundledTcpdump(): String? {
+        return try {
+            val target = File(filesDir, "tcpdump")
+            if (!target.exists() || target.length() == 0L) {
+                assets.open("tcpdump").use { input ->
+                    target.outputStream().use { out -> input.copyTo(out) }
+                }
+            }
+            // 置为可执行
+            Runtime.getRuntime().exec(arrayOf("chmod", "0755", target.absolutePath)).waitFor()
+            if (target.exists() && target.canExecute()) target.absolutePath else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun isRooted(): Boolean {
         for (binary in listOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/system/app/Superuser.apk")) {
             if (File(binary).exists()) return true
