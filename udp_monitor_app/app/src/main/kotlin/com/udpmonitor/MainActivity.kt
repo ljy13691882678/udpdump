@@ -8,6 +8,7 @@ import android.text.method.ScrollingMovementMethod
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.io.BufferedReader
@@ -34,18 +35,39 @@ class MainActivity : Activity() {
     private lateinit var btnToggle: Button
     private lateinit var btnClear: Button
     private lateinit var tvStatus: TextView
+    private lateinit var scrollView: ScrollView
 
     private val ui = Handler(Looper.getMainLooper())
-    private val bufferLines = StringBuilder()   // 界面上的文本（带条数上限）
-    private var writer: BufferedWriter? = null  // 日志文件写入
+
+    // 界面日志缓冲区：后台线程只往 buffer 追加并置 dirty=true，
+    // 主线程由 renderTicker 每 ~150ms 批量渲染一次，避免逐条 post 淹没主线程。
+    private val buffer = StringBuilder()
+    private val bufferLock = Any()
+    private var dirty = false
+
+    // 日志文件写锁（后台抓包线程与主线程停止时都会访问）
+    private val writerLock = Any()
+    private var writer: BufferedWriter? = null
+    private var linesSinceFlush = 0
     private var logFile: File? = null
-    private var process: Process? = null
-    private var captureThread: Thread? = null
+
+    @Volatile
     private var running = false
+    private var process: Process? = null
     private var packetCount = 0
 
-    // 单屏最多显示的行数，防止内存无限增长
-    private val maxLines = 800
+    // 界面最多保留的字符数，防止无界增长导致内存/渲染卡顿
+    private val maxChars = 60000
+
+    // 周期性把 buffer 渲染到界面
+    private val renderTicker = object : Runnable {
+        override fun run() {
+            if (!tickerActive) return
+            renderPending()
+            ui.postDelayed(this, 150)
+        }
+    }
+    private var tickerActive = false
 
     // tcpdump 行解析
     private val pktRe = Pattern.compile(
@@ -64,6 +86,7 @@ class MainActivity : Activity() {
         btnToggle = findViewById(R.id.btnToggle)
         btnClear = findViewById(R.id.btnClear)
         tvStatus = findViewById(R.id.tvStatus)
+        scrollView = findViewById(R.id.scrollView)
 
         tvLog.movementMethod = ScrollingMovementMethod()
 
@@ -73,6 +96,10 @@ class MainActivity : Activity() {
         btnClear.setOnClickListener { clearLog() }
 
         tvStatus.text = "未开始 · 需要 root"
+
+        // 启动周期性渲染
+        tickerActive = true
+        ui.post(renderTicker)
     }
 
     // ---- 生命周期 ----
@@ -83,6 +110,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        tickerActive = false
+        ui.removeCallbacks(renderTicker)
         closeWriter()
         super.onDestroy()
     }
@@ -129,14 +158,14 @@ class MainActivity : Activity() {
 
         running = true
         packetCount = 0
-        bufferLines.setLength(0)
+        synchronized(bufferLock) { buffer.setLength(0); dirty = false }
         tvLog.text = ""
 
         appendLine("== 开始抓包，过滤: $bpf ==")
         appendLine("== 保存至: ${logFile!!.absolutePath} ==")
         ui.post { btnToggle.text = "停止"; tvStatus.text = "抓包中…" }
 
-        captureThread = Thread(CaptureRunnable(process!!), "capture").also { it.start() }
+        Thread(CaptureRunnable(process!!), "capture").start()
 
         // 监听进程意外退出
         Thread {
@@ -156,6 +185,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopCapture() {
+        if (!running) return   // 防止重复点击 / 多次停止导致竞态
         running = false
         appendLine("== 抓包已停止，共捕获 $packetCount 个 UDP 包 ==")
         try {
@@ -170,16 +200,22 @@ class MainActivity : Activity() {
     }
 
     private fun closeWriter() {
-        try {
-            writer?.flush()
-            writer?.close()
-        } catch (_: Exception) {
+        synchronized(writerLock) {
+            try {
+                writer?.flush()
+                writer?.close()
+            } catch (_: Exception) {
+            }
+            writer = null
+            linesSinceFlush = 0
         }
-        writer = null
     }
 
     private fun clearLog() {
-        bufferLines.setLength(0)
+        synchronized(bufferLock) {
+            buffer.setLength(0)
+            dirty = false
+        }
         tvLog.text = ""
     }
 
@@ -265,30 +301,49 @@ class MainActivity : Activity() {
         return sb.toString()
     }
 
-    /** 追加一行到界面与日志文件（线程安全：写入用同步 + UI 回调） */
+    /**
+     * 追加一行。由抓包后台线程调用：
+     *  - 写入日志文件（批量 flush）
+     *  - 追加到内存缓冲区并置 dirty，由 renderTicker 批量渲染，避免淹没主线程
+     */
     private fun appendLine(text: String) {
-        // 写入日志文件
+        // 写日志文件
         try {
-            synchronized(this) {
-                writer?.let { w -> w.write(text); w.write("\n"); w.flush() }
+            synchronized(writerLock) {
+                writer?.let { w ->
+                    w.write(text)
+                    w.write("\n")
+                    if (++linesSinceFlush >= 20) {
+                        w.flush()
+                        linesSinceFlush = 0
+                    }
+                }
             }
         } catch (_: Exception) {
         }
-        // 更新界面
-        ui.post {
-            bufferLines.append(text).append('\n')
-            // 裁剪过长的行数
-            while (bufferLines.toString().lines().size > maxLines) {
-                val idx = bufferLines.indexOf("\n")
-                if (idx < 0) break
-                bufferLines.delete(0, idx + 1)
+        // 追加到界面缓冲区
+        synchronized(bufferLock) {
+            buffer.append(text).append('\n')
+            dirty = true
+        }
+    }
+
+    /** 主线程调用：把缓冲区内容渲染到界面（最多每 ~150ms 一次） */
+    private fun renderPending() {
+        val text: String
+        synchronized(bufferLock) {
+            if (!dirty) return
+            dirty = false
+            // 按字符数裁剪，防止无界增长
+            if (buffer.length > maxChars) {
+                buffer.delete(0, buffer.length - maxChars)
             }
-            tvLog.text = bufferLines.toString()
-            // 自动滚到底部
-            tvLog.post {
-                val lineCount = tvLog.layout.takeIf { it != null }?.let { tvLog.layout.lineCount } ?: 0
-                tvLog.scrollY = (lineCount * tvLog.lineHeight)
-            }
+            text = buffer.toString()
+        }
+        try {
+            tvLog.text = text
+            scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
+        } catch (_: Exception) {
         }
     }
 
