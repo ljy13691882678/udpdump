@@ -25,13 +25,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK 26.1
+      - name: Set up Android SDK & NDK
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;26.1.10909125"
+          SDKM=$(find "$ANDROID_HOME" -path '*/cmdline-tools/*/bin/sdkmanager' 2>/dev/null | head -1)
+          if [ -z "$SDKM" ]; then SDKM=$(find "$ANDROID_HOME" -name sdkmanager 2>/dev/null | head -1); fi
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
 
       - name: Cross-compile tcpdump for arm64
         run: |

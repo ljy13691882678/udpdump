@@ -12,6 +12,17 @@ PREFIX="aarch64-linux-android"
 
 : "${ANDROID_HOME:?请先设置 ANDROID_HOME}"
 TOOLCHAIN="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+if [ ! -x "$TOOLCHAIN/$PREFIX$API-clang" ]; then
+    # 指定的 NDK 不存在时，自动发现已安装的任意 NDK
+    NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | head -1)
+    if [ -n "$NDK_DIR" ]; then
+        echo "未找到 NDK $NDK_VERSION，改用已安装的 $NDK_DIR"
+        TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+    else
+        echo "找不到 Android NDK（$ANDROID_HOME/ndk 为空）" >&2
+        exit 1
+    fi
+fi
 [ -x "$TOOLCHAIN/$PREFIX$API-clang" ] || { echo "找不到 NDK 工具链: $TOOLCHAIN"; exit 1; }
 
 CC="$TOOLCHAIN/$PREFIX$API-clang"
