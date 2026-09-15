@@ -32,7 +32,7 @@
             android:text="" />
     </ScrollView>
 
-    <!-- 控件行：端口过滤 + 开始/停止 + 清屏 -->
+    <!-- 过滤条件：目标服务器IP/域名 + 端口(精确抓某个App的UDP) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -40,24 +40,42 @@
         android:orientation="horizontal">
 
         <EditText
-            android:id="@+id/etPort"
+            android:id="@+id/etServer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:hint="@string/server_hint"
+            android:inputType="textUri"
+            android:maxLines="1" />
+
+        <EditText
+            android:id="@+id/etPort"
+            android:layout_width="90dp"
+            android:layout_height="wrap_content"
             android:hint="@string/port_hint"
             android:inputType="number"
             android:maxLines="1" />
+    </LinearLayout>
+
+    <!-- 控件行：开始/停止 + 清屏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnToggle"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:text="@string/start" />
 
         <Button
             android:id="@+id/btnClear"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:text="@string/clear" />
     </LinearLayout>
 

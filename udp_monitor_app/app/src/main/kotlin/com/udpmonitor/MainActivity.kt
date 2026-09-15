@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.method.ScrollingMovementMethod
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -15,6 +16,7 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
+import java.io.IOException
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,6 +33,7 @@ import java.util.regex.Pattern
 class MainActivity : Activity() {
 
     private lateinit var tvLog: TextView
+    private lateinit var etServer: EditText
     private lateinit var etPort: EditText
     private lateinit var btnToggle: Button
     private lateinit var btnClear: Button
@@ -53,6 +56,7 @@ class MainActivity : Activity() {
 
     @Volatile
     private var running = false
+    @Volatile
     private var process: Process? = null
     private var packetCount = 0
 
@@ -79,9 +83,14 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 全局崩溃日志：把崩溃堆栈存到文件，方便排查闪退原因
+        installCrashHandler()
+
         setContentView(R.layout.activity_main)
 
         tvLog = findViewById(R.id.tvLog)
+        etServer = findViewById(R.id.etServer)
         etPort = findViewById(R.id.etPort)
         btnToggle = findViewById(R.id.btnToggle)
         btnClear = findViewById(R.id.btnClear)
@@ -125,8 +134,12 @@ class MainActivity : Activity() {
             return
         }
 
-        val portFilter = etPort.text.toString().trim()
-        val bpf = if (portFilter.isEmpty()) "udp" else "udp and port $portFilter"
+        val server = etServer.text.toString().trim()
+        val port = etPort.text.toString().trim()
+        val parts = mutableListOf("udp")
+        if (server.isNotEmpty()) parts += "and host $server"
+        if (port.isNotEmpty()) parts += "and port $port"
+        val bpf = parts.joinToString(" ")
 
         // 解压内置的 arm64 tcpdump 到私有目录（如果还没有）
         val tcpdumpPath = extractBundledTcpdump()
@@ -148,13 +161,15 @@ class MainActivity : Activity() {
 
         // 用 root(su) 运行内置 tcpdump
         val cmd = "\"$tcpdumpPath\" -i any -l -n -X \"$bpf\""
+        var proc: Process
         try {
-            process = ProcessBuilder("su", "-c", cmd).start()
+            proc = ProcessBuilder("su", "-c", cmd).start()
         } catch (e: Exception) {
             toast("启动 tcpdump 失败（su 不可用？）: ${e.message}")
             closeWriter()
             return
         }
+        process = proc
 
         running = true
         packetCount = 0
@@ -165,34 +180,22 @@ class MainActivity : Activity() {
         appendLine("== 保存至: ${logFile!!.absolutePath} ==")
         ui.post { btnToggle.text = "停止"; tvStatus.text = "抓包中…" }
 
-        Thread(CaptureRunnable(process!!), "capture").start()
-
-        // 监听进程意外退出
-        Thread {
-            try {
-                process!!.waitFor()
-                if (running) {
-                    ui.post {
-                        toast("tcpdump 已退出（$cmd）")
-                        running = false
-                        btnToggle.text = "开始"; tvStatus.text = "已停止（tcpdump 退出）"
-                    }
-                    closeWriter()
-                }
-            } catch (_: InterruptedException) {
-            }
-        }.start()
+        Thread(CaptureRunnable(proc), "capture").start()
     }
 
     private fun stopCapture() {
         if (!running) return   // 防止重复点击 / 多次停止导致竞态
         running = false
-        appendLine("== 抓包已停止，共捕获 $packetCount 个 UDP 包 ==")
+        val p = process
+        process = null
+        // 终止 su/tcpdump 进程，并关闭其输入流使抓包线程的 readLine 立即返回(不卡死)
         try {
-            process?.destroy()
-        } catch (_: Exception) {
+            p?.inputStream?.close()
+            p?.destroy()
+        } catch (_: IOException) {
         }
         closeWriter()
+        appendLine("== 抓包已停止，共捕获 $packetCount 个 UDP 包 ==")
         ui.post {
             btnToggle.text = "开始"
             tvStatus.text = "已停止 · 日志: ${logFile?.name ?: "-"}"
@@ -222,8 +225,7 @@ class MainActivity : Activity() {
     // -------------------------------------------------------------
     // 抓取循环（后台线程），解析 tcpdump -l -X 输出
     // -------------------------------------------------------------
-    private inner class CaptureRunnable(proc: Process) : Runnable {
-        private val reader = BufferedReader(InputStreamReader(proc.inputStream))
+    private inner class CaptureRunnable(private val proc: Process) : Runnable {
 
         override fun run() {
             // 当前正在累积的包
@@ -246,28 +248,45 @@ class MainActivity : Activity() {
                 curHex = StringBuilder()
             }
 
-            while (running) {
-                val text = reader.readLine() ?: break
-                val m = pktRe.matcher(text)
-                if (m.matches()) {
-                    commit()
-                    curTime = text.substringBefore(" ")
-                    curSrc = m.group(1)
-                    curSport = m.group(2).toInt()
-                    curDst = m.group(3)
-                    curDport = m.group(4).toInt()
-                    val detail = m.group(5) ?: ""
-                    val lm = lenRe.matcher(detail)
-                    curLen = if (lm.find()) lm.group(1).toIntOrNull() ?: 0 else 0
-                    continue
+            try {
+                val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                while (running) {
+                    val text = reader.readLine() ?: break
+                    val m = pktRe.matcher(text)
+                    if (m.matches()) {
+                        commit()
+                        curTime = text.substringBefore(" ")
+                        curSrc = m.group(1)
+                        curSport = m.group(2).toInt()
+                        curDst = m.group(3)
+                        curDport = m.group(4).toInt()
+                        val detail = m.group(5) ?: ""
+                        val lm = lenRe.matcher(detail)
+                        curLen = if (lm.find()) lm.group(1).toIntOrNull() ?: 0 else 0
+                        continue
+                    }
+                    val hm = hexlineRe.matcher(text)
+                    if (hm.matches()) {
+                        val tokens = hm.group(1).split(" ").filter { hexTokenRe.matcher(it).matches() }
+                        if (tokens.isNotEmpty()) curHex.append(tokens.joinToString(" ")).append(' ')
+                    }
                 }
-                val hm = hexlineRe.matcher(text)
-                if (hm.matches()) {
-                    val tokens = hm.group(1).split(" ").filter { hexTokenRe.matcher(it).matches() }
-                    if (tokens.isNotEmpty()) curHex.append(tokens.joinToString(" ")).append(' ')
+            } catch (_: IOException) {
+                // 停止时关闭了输入流导致的流异常，属正常
+            } catch (_: Exception) {
+            }
+            commit()
+
+            // 若并非用户主动停止而是 tcpdump 意外退出，提示并复位界面
+            if (running) {
+                running = false
+                process = null
+                closeWriter()
+                ui.post {
+                    btnToggle.text = "开始"
+                    tvStatus.text = "已停止（tcpdump 意外退出）"
                 }
             }
-            if (running) commit()
         }
     }
 
@@ -350,6 +369,33 @@ class MainActivity : Activity() {
     // -------------------------------------------------------------
     // 工具
     // -------------------------------------------------------------
+
+    /** 安装全局崩溃日志：崩溃时把堆栈写到文件，便于排查闪退 */
+    private fun installCrashHandler() {
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val dir = getExternalFilesDir(null) ?: filesDir
+                val file = File(dir, "crash_${System.currentTimeMillis()}.txt")
+                val sb = StringBuilder()
+                sb.append("线程: ").append(thread.name).append('\n')
+                sb.append(throwable.toString()).append('\n')
+                sb.append(Log.getStackTraceString(throwable)).append('\n')
+                file.writeText(sb.toString())
+                // 同时写入控件日志
+                synchronized(bufferLock) {
+                    buffer.append("== 发生了崩溃，详情见: ").append(file.absolutePath).append(" ==\n")
+                    dirty = true
+                }
+                ui.post { renderPending() }
+                Log.e("UdpMonitor", "崩溃${file.absolutePath}\n${throwable}", throwable)
+            } catch (_: Exception) {
+            } finally {
+                prev?.uncaughtException(thread, throwable)
+                ?: android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }
+    }
 
     /** 把内置在 assets 里的 arm64 tcpdump 解压到私有目录并加可执行权限，返回路径 */
     private fun extractBundledTcpdump(): String? {

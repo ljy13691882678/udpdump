@@ -2,7 +2,8 @@
 <resources>
     <string name="app_name">UDP监听</string>
     <string name="title">UDP 实时监听（需要 root）</string>
-    <string name="port_hint">可选：按端口过滤</string>
+    <string name="port_hint">端口</string>
+    <string name="server_hint">目标服务器IP/域名(可留空)</string>
     <string name="start">开始</string>
     <string name="stop">停止</string>
     <string name="clear">清屏</string>
